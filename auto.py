@@ -1,24 +1,30 @@
 # %% CELL 1 import numpy as np
 import pandas as pd
 import mplfinance as mpf
+from dotenv import load_dotenv
 from twelvedata import TDClient
+import os
 
-df = pd.read_csv("gold_4mo_daily.csv")
-df['datetime'] = pd.to_datetime(df['datetime'])
-df.set_index('datetime', inplace=True)
-df = df[-200:]
+#df = pd.read_csv("gold_4mo_daily.csv")
+#df['datetime'] = pd.to_datetime(df['datetime'])
+#df.set_index('datetime', inplace=True)
+#df = df[-200:]
 
-#td = TDClient(apikey="da225d47d6c44cffa77ea8f3659f8258")
-#ts = td.time_series(
-#    symbol="XAU/USD",
-#    #interval="4h",
-#    interval="15min",
-#    outputsize=500,
-#    timezone="UTC"
-#)
+load_dotenv("secrets.env")
 
-#df = ts.as_pandas()
-#df = df.sort_index()
+api_key = os.getenv("TD_API_KEY")
+
+td = TDClient(apikey=api_key)
+ts = td.time_series(
+    symbol="XAU/USD",
+    interval="4h",
+    #interval="15min",
+    outputsize=500,
+    timezone="UTC"
+)
+
+df = ts.as_pandas()
+df = df.sort_index()
 
 # %% CELL 2
 print(df.head())
