@@ -1,0 +1,76 @@
+
+#df = yf.download("SWIGGY.NS", period="1y")
+#df.reset_index(inplace=True)
+#df = df.iloc[2:] 
+#df['Date'] = pd.to_datetime(df['Date'])
+#df.columns = ['date', 'close', 'high', 'low', 'open', 'volume']
+#df.set_index('date', inplace=True)
+
+load_dotenv("secrets.env")
+
+api_key = os.getenv("TD_API_KEY")
+
+td = TDClient(apikey=api_key)
+ts = td.time_series(
+    symbol="XAU/USD",
+    interval="1h",
+    outputsize=5000,
+    #interval="15min",
+    #outputsize=500,
+    timezone="UTC"
+)
+
+df = ts.as_pandas()
+df = df.sort_index()
+
+#    c1 = abs(df['high'].iloc[l] - nearest_resistance) <= lim
+#    c2 = abs(max(df['open'].iloc[l], df['close'].iloc[l]) - nearest_resistance) <= lim
+#    c3 = min(df['open'].iloc[l], df['close'].iloc[l]) < nearest_resistance
+#    c4 = df['low'].iloc[l] < nearest_resistance
+#    if( (c1 or c2) and c3 and c4 ):
+#        return 1
+#    else:
+#        return 0
+    
+    #c1 = abs(df['low'].iloc[l] - nearest_support) <= lim
+    #c2 = abs(min(df['open'].iloc[l], df['close'].iloc[l]) - nearest_support) <= lim
+    #c3 = max(df['open'].iloc[l], df['close'].iloc[l]) > nearest_support
+    #c4 = df['high'].iloc[l] > nearest_support
+    #if( (c1 or c2) and c3 and c4 ):
+    #    return 1
+    #else:
+    #    return 0
+#    c1 = abs(df['high'].iloc[l] - nearest_resistance) <= lim
+#    c2 = abs(max(df['open'].iloc[l], df['close'].iloc[l]) - nearest_resistance) <= lim
+#    c3 = min(df['open'].iloc[l], df['close'].iloc[l]) < nearest_resistance
+#    c4 = df['low'].iloc[l] < nearest_resistance
+#    if( (c1 or c2) and c3 and c4 ):
+#        return 1
+#    else:
+#        return 0
+
+#engulfing = df['engulfing']
+#engulfing_bull_marker = [np.nan] * len(df)
+#engulfing_bear_marker = [np.nan] * len(df)
+#for i in range(len(df)):
+#    if engulfing.iloc[i] == 2:
+#        engulfing_bull_marker[i] = df['low'].iloc[i] * 1
+#    elif engulfing.iloc[i] == 1:
+#        engulfing_bear_marker[i] = df['high'].iloc[i] * 1
+#
+#star = df['star']
+#star_bull_marker = [np.nan] * len(df)
+#star_bear_marker = [np.nan] * len(df)
+#for i in range(len(df)):
+#    if star.iloc[i] == 2:
+#        star_bull_marker[i] = df['low'].iloc[i] * 1
+#    elif star.iloc[i] == 1:
+#        star_bear_marker[i] = df['high'].iloc[i] * 1
+#
+
+#apds = [
+#    mpf.make_addplot(engulfing_bull_marker, type='scatter', marker='^', color='green', markersize=20),
+#    mpf.make_addplot(engulfing_bear_marker, type='scatter', marker='v', color='red', markersize=20),
+#    mpf.make_addplot(star_bull_marker, type='scatter', marker='o', color='green', markersize=20),
+#    mpf.make_addplot(star_bear_marker, type='scatter', marker='o', color='red', markersize=20)
+#]
