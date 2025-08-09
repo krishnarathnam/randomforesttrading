@@ -6,22 +6,6 @@
 #df.columns = ['date', 'close', 'high', 'low', 'open', 'volume']
 #df.set_index('date', inplace=True)
 
-load_dotenv("secrets.env")
-
-api_key = os.getenv("TD_API_KEY")
-
-td = TDClient(apikey=api_key)
-ts = td.time_series(
-    symbol="XAU/USD",
-    interval="1h",
-    outputsize=5000,
-    #interval="15min",
-    #outputsize=500,
-    timezone="UTC"
-)
-
-df = ts.as_pandas()
-df = df.sort_index()
 
 #    c1 = abs(df['high'].iloc[l] - nearest_resistance) <= lim
 #    c2 = abs(max(df['open'].iloc[l], df['close'].iloc[l]) - nearest_resistance) <= lim

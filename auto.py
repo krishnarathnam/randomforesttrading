@@ -9,12 +9,13 @@ import yfinance as yf
 from testing import calculate_target_variable
 import joblib 
 
-df = yf.download("SWIGGY.NS", period="1y")
+df = yf.download("AAPL", period="20y")
 df.reset_index(inplace=True)
 df = df.iloc[2:] 
 df['Date'] = pd.to_datetime(df['Date'])
 df.columns = ['date', 'close', 'high', 'low', 'open', 'volume']
 df.set_index('date', inplace=True)
+
 
 def calculateSR(df,n1=2,n2=2,threshold_ratio=0.0010):
     def support(df1,l,n1,n2):
@@ -58,6 +59,12 @@ def calculateSR(df,n1=2,n2=2,threshold_ratio=0.0010):
 
     return support,resistance
 
+
+def nearest_level(price,levels):
+    if not levels:
+        return None
+    else:
+        return min(levels, key=lambda x: abs(x-price))
 
 
 def Revsignal1(df1):
@@ -115,7 +122,8 @@ def Revsignal2(df):
         ratio1[row] = highdiff[row]/bodydiff[row]
         ratio2[row] = lowdiff[row]/bodydiff[row]
 
-        if (ratio1[row]>2.5 and lowdiff[row]<0.3*highdiff[row] and bodydiff[row]>0.03 ): #and df.RSI[row]>60 and df.RSI[row]<80 
+        
+        if (ratio1[row]>2.0 and lowdiff[row]<0.4*highdiff[row] and bodydiff[row]>0.02 ): #and df.RSI[row]>60 and df.RSI[row]<80 
             signal[row] = 1
         
         #elif (ratio2[row-1]>2.5 and highdiff[row-1]<0.23*lowdiff[row-1] and bodydiff[row-1]>0.03 and bodydiff[row]>0.04 and close[row]>open[row] and close[row]>high[row-1] and df.RSI[row]<55 and df.RSI[row]>30):
@@ -127,33 +135,107 @@ def Revsignal2(df):
 
 
 
-def closeResistance(df,l,levels,lim):
-    if len(levels)==0:
-        return 0
-    nearest_resistance = min(levels, key=lambda x: abs(x - df['high'].iloc[l]))
+def closeResistance(df, l, levels, lim):
+    """Return 1 if candle l is a valid resistance rejection near the nearest level.
 
+    Rules:
+    - Proximity by percentage: near if high >= level OR |high-level|/level <= lim and high < level
+    - Body must close/open below the level (no body above)
+    - Prefer an upper-wick rejection (upper wick at least 30% of body). If no touch, wick rule is relaxed
+    - Next candle must not break above the level (allow slight tolerance of lim)
+    - Previous close should not be materially above the level (allow slight tolerance of lim)
+    """
+    if not levels:
+        return 0
+
+    level = min(levels, key=lambda x: abs(x - df['high'].iloc[l]))
+
+    o = float(df['open'].iloc[l])
+    c = float(df['close'].iloc[l])
+    h = float(df['high'].iloc[l])
+    lw = float(df['low'].iloc[l])
+
+    body_high = max(o, c)
+    body_low = min(o, c)
+    body = max(abs(c - o), 1e-12)
+
+    # Proximity as ratio to level
+    rel_dist = abs(h - level) / max(level, 1e-12)
+    near = (h >= level) or (rel_dist <= lim and h < level)
+
+    # Body must be below the level
+    body_below = body_high <= level
+
+    # Wick rejection (if touched)
+    upper_wick = max(h - body_high, 0.0)
+    wick_ok = True if h < level else (upper_wick / body) >= 0.3
+
+    # Previous candle context (avoid prior strong closes above)
+    prev_ok = True
+    if l - 1 >= 0:
+        p_close = float(df['close'].iloc[l - 1])
+        prev_ok = p_close <= level * (1 + lim)
+
+    # Next candle confirmation (no break above)
+    next_ok = True
+    if l + 1 < len(df):
+        n_o = float(df['open'].iloc[l + 1])
+        n_c = float(df['close'].iloc[l + 1])
+        n_h = float(df['high'].iloc[l + 1])
+        next_ok = (max(n_o, n_c) <= level * (1 + lim)) and (n_h <= level * (1 + lim))
+
+    return 1 if (near and body_below and wick_ok and prev_ok and next_ok) else 0
     
-    c1 = df['high'].iloc[l] >= nearest_resistance  # Wick touches or goes above resistance
-    c2 = abs(df['high'].iloc[l] - nearest_resistance) <= lim and df['high'].iloc[l] < nearest_resistance
-    c3 = max(df['open'].iloc[l], df['close'].iloc[l]) < nearest_resistance  # Body stays below
-    if (c1 or c2) and c3:
-        return 1
-    else:
-        return 0
-    
-def closeSupport(df,l,levels,lim):
-    if len(levels)==0:
-        return 0
-    nearest_support = min(levels, key=lambda x: abs(x - df['low'].iloc[l]))
+def closeSupport(df, l, levels, lim):
+    """Return 1 if candle l is a valid support bounce near the nearest level.
 
-
-    c1 = df['low'].iloc[l] <= nearest_support
-    c2 = abs(df['low'].iloc[l] - nearest_support) <= lim and df['low'].iloc[l] > nearest_support
-    c3 = max(df['open'].iloc[l], df['close'].iloc[l]) > nearest_support  # Body stays below
-    if (c1 or c2) and c3:
-        return 1
-    else:
+    Rules:
+    - Proximity by percentage: near if low <= level OR |low-level|/level <= lim and low > level
+    - Body must close/open above the level (no body below)
+    - Prefer a lower-wick bounce (lower wick at least 30% of body). If no touch, wick rule is relaxed
+    - Next candle must not break below the level (allow slight tolerance of lim)
+    - Previous close should not be materially below the level (allow slight tolerance of lim)
+    """
+    if not levels:
         return 0
+
+    level = min(levels, key=lambda x: abs(x - df['low'].iloc[l]))
+
+    o = float(df['open'].iloc[l])
+    c = float(df['close'].iloc[l])
+    h = float(df['high'].iloc[l])
+    lw = float(df['low'].iloc[l])
+
+    body_high = max(o, c)
+    body_low = min(o, c)
+    body = max(abs(c - o), 1e-12)
+
+    # Proximity as ratio to level
+    rel_dist = abs(lw - level) / max(level, 1e-12)
+    near = (lw <= level) or (rel_dist <= lim and lw > level)
+
+    # Body must be above the level
+    body_above = body_low >= level
+
+    # Wick bounce (if touched)
+    lower_wick = max(body_low - lw, 0.0)
+    wick_ok = True if lw > level else (lower_wick / body) >= 0.3
+
+    # Previous candle context (avoid prior strong closes below)
+    prev_ok = True
+    if l - 1 >= 0:
+        p_close = float(df['close'].iloc[l - 1])
+        prev_ok = p_close >= level * (1 - lim)
+
+    # Next candle confirmation (no break below)
+    next_ok = True
+    if l + 1 < len(df):
+        n_o = float(df['open'].iloc[l + 1])
+        n_c = float(df['close'].iloc[l + 1])
+        n_l = float(df['low'].iloc[l + 1])
+        next_ok = (min(n_o, n_c) >= level * (1 - lim)) and (n_l >= level * (1 - lim))
+
+    return 1 if (near and body_above and wick_ok and prev_ok and next_ok) else 0
 
 
 n1 = 2
@@ -165,16 +247,33 @@ support, resistance = calculateSR(df,n1,n2,threshold)
 hlines = support + resistance
 hl_colors = ['green'] * len(support) + ['red'] * len(resistance)
 
+df['nearest_support'] = df['low'].apply(lambda x: nearest_level(x, support))
+df['nearest_resistance'] = df['high'].apply(lambda x: nearest_level(x, resistance))
+
+df['dist_to_support'] = (df['low'] - df['nearest_support']) / df['nearest_support']
+df['dist_to_resistance'] = (df['nearest_resistance'] - df['high']) / df['nearest_resistance']
+
 df['signal'] = 0
 for row in range(n1,len(df)-n2):
-    if((df['engulfing'].iloc[row]==1 or df['star'].iloc[row]==1) and closeResistance(df,row,resistance,0.0015)):
+    # Make resistance proximity more lenient for bearish signals
+    if((df['engulfing'].iloc[row]==1 or df['star'].iloc[row]==1) and closeResistance(df,row,resistance,0.0020)):
         df.loc[df.index[row], 'signal'] = 1
     elif((df['engulfing'].iloc[row]==2 or df['star'].iloc[row]==2) and closeSupport(df,row,support,0.0015)):
         df.loc[df.index[row], 'signal'] = 2
     else:
         df.loc[df.index[row], 'signal'] = 0
 
-print(df.tail())
+
+bearish_with_resistance = 0
+bullish_with_support = 0
+for row in range(n1,len(df)-n2):
+    if df['engulfing'].iloc[row]==1 or df['star'].iloc[row]==1:
+        if closeResistance(df,row,resistance,0.0015):
+            bearish_with_resistance += 1
+    if df['engulfing'].iloc[row]==2 or df['star'].iloc[row]==2:
+        if closeSupport(df,row,support,0.0015):
+            bullish_with_support += 1
+
 
 signal = df['signal']
 bull_marker = [np.nan] * len(df)
@@ -204,15 +303,17 @@ for i in range(len(df)):
         star_bear_marker[i] = df['high'].iloc[i] * 1
 #
 
+delta = df['close'].diff()
+gain = delta.clip(lower=0)
+loss = -delta.clip(upper=0)
 
-apds = [
-    mpf.make_addplot(bull_marker, type='scatter', marker='^', color='green', markersize=20),
-    mpf.make_addplot(bear_marker, type='scatter', marker='v', color='red', markersize=20),
-   # mpf.make_addplot(engulfing_bull_marker, type='scatter', marker='^', color='green', markersize=20),
-   # mpf.make_addplot(engulfing_bear_marker, type='scatter', marker='v', color='red', markersize=20),
-   # mpf.make_addplot(star_bull_marker, type='scatter', marker='o', color='green', markersize=20),
-   # mpf.make_addplot(star_bear_marker, type='scatter', marker='o', color='red', markersize=20)
-]
+avg_gain = gain.rolling(window=14).mean()
+avg_loss = loss.rolling(window=14).mean()
+
+rs = avg_gain / avg_loss
+df['rsi'] = 100 - (100 / (1 + rs))
+df['ema_20'] = df['close'].ewm(span=20, adjust=False).mean()
+
 
 
 # Calculate target variables
@@ -221,11 +322,6 @@ target_amount, target_category = calculate_target_variable(df, barsupfront=2, SL
 # Add target variables to DataFrame
 df['target_amount'] = target_amount
 df['target_category'] = target_category
-
-# Print statistics
-print(f"Total signals: {(df['signal'] != 0).sum()}")
-print(f"Bearish signals (1): {(df['signal'] == 1).sum()}")
-print(f"Bullish signals (2): {(df['signal'] == 2).sum()}")
 
 # FIXED: Proper win/loss counting logic
 wins = 0
@@ -249,39 +345,42 @@ for i, signal_val in enumerate(df['signal']):
             elif target_category[i] == 3:  # Both hit
                 both_hit += 1
 
-print(f"\nTarget Analysis:")
-print(f"Wins: {wins}")
-print(f"Losses: {losses}")
-print(f"Both TP/SL hit: {both_hit}")
-print(f"Completed trades: {wins + losses + both_hit}")
 print(f"Win rate: {wins/(wins+losses)*100:.1f}%" if wins+losses > 0 else "No completed trades")
 
-# Show sample results
-signal_rows = df[df['signal'] != 0]
-if len(signal_rows) > 0:
-    print(f"\nSample signals with targets:")
-    print(signal_rows[['open', 'high', 'low', 'close', 'signal', 'target_amount', 'target_category']])
-
-
 model = joblib.load('model.pkl')
-latest = df.iloc[-1:]
-X_live = latest[['open', 'high', 'low', 'close', 'signal', 'engulfing', 'star']]
-prediction = model.predict(X_live)[0]
-print("Predicted target category:", prediction)
-categories = {
-    0: "No outcome yet",
-    1: "Win for bearish / Loss for bullish",
-    2: "Win for bullish / Loss for bearish",
-    3: "Both TP and SL hit (rare)"
-}
-print("Prediction meaning:", categories[prediction])
+
+predictions = []
+prediction_markers = [np.nan] * len(df)
+#df.to_csv("data/my_trading_signals_apple.csv", index=True)
+
+feature_cols = ['open', 'high', 'low', 'close', 'engulfing', 'star', 'rsi', 'ema_20']
+X_all = df[feature_cols]
+predictions = model.predict(X_all)
+
+for i in range(len(df)):
+    if i < len(predictions):
+        prediction = predictions[i]
+        if prediction == 1:  # Win for bearish / Loss for bullish
+            prediction_markers[i] = df['high'].iloc[i] * 1.001  # Slightly above high
+        elif prediction == 2:  # Win for bullish / Loss for bearish  
+            prediction_markers[i] = df['low'].iloc[i] * 0.999   # Slightly below low
+
 
 df.index = pd.to_datetime(df.index)
 df = df.sort_index()
+print(df.head(5))
+
+apds = [
+    mpf.make_addplot(bull_marker, type='scatter', marker='^', color='green', markersize=20),
+    mpf.make_addplot(bear_marker, type='scatter', marker='v', color='red', markersize=20),
+    mpf.make_addplot(prediction_markers, type='scatter', marker='o', color='blue', markersize=15, alpha=0.7),
+]
+
 mpf.plot(
     df,
     type="candle",
     hlines=dict(hlines=hlines, colors=hl_colors, linewidths=0.1),
     style="charles",
-    addplot = apds
+    addplot = apds,
+    title="Trading Signals with ML Predictions\nGreen: Bullish, Red: Bearish, Blue: ML Prediction"
 )
